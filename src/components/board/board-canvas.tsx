@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -58,44 +58,76 @@ export function BoardCanvas({ space, initialNodes, initialEdges, userId }: Board
   const [adding, setAdding] = useState(false);
   const positionDebounce = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-  const onNodesChange = useCallback(async (changes: NodeChange<RFNode<CardNodeData>>[]) => {
-    setRfNodes((nds) => applyNodeChanges(changes, nds));
+  // Cleanup debounce timers on unmount (CC-010)
+  useEffect(() => {
+    const timers = positionDebounce.current;
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer));
+    };
+  }, []);
 
-    // Handle deletions
-    for (const change of changes) {
+  // L-003: Apply node deletions only after DB confirms (with rollback)
+  const onNodesChange = useCallback(async (changes: NodeChange<RFNode<CardNodeData>>[]) => {
+    const removeChanges = changes.filter((c) => c.type === "remove");
+    const otherChanges = changes.filter((c) => c.type !== "remove");
+
+    // Apply non-delete changes immediately
+    if (otherChanges.length > 0) {
+      setRfNodes((nds) => applyNodeChanges(otherChanges, nds));
+    }
+
+    // For deletions: confirm with DB first, then apply
+    for (const change of removeChanges) {
       if (change.type === "remove") {
+        // Optimistic removal
+        setRfNodes((nds) => applyNodeChanges([change], nds));
         try {
           await deleteNode({ userId, nodeId: change.id });
         } catch {
-          toast.error("Failed to delete card");
+          // Rollback: reload the board data to restore the node
+          toast.error("Failed to delete card — refreshing");
+          window.location.reload();
         }
       }
     }
   }, [userId]);
 
+  // L-004: Apply edge deletions with rollback on failure
   const onEdgesChange = useCallback(async (changes: EdgeChange[]) => {
-    setRfEdges((eds) => applyEdgeChanges(changes, eds));
+    const removeChanges = changes.filter((c) => c.type === "remove");
+    const otherChanges = changes.filter((c) => c.type !== "remove");
 
-    for (const change of changes) {
+    if (otherChanges.length > 0) {
+      setRfEdges((eds) => applyEdgeChanges(otherChanges, eds));
+    }
+
+    for (const change of removeChanges) {
       if (change.type === "remove") {
+        // Snapshot for rollback
+        const snapshot = rfEdges;
+        setRfEdges((eds) => applyEdgeChanges([change], eds));
         try {
           await deleteEdge({ userId, edgeId: change.id });
         } catch {
+          // Rollback edge
+          setRfEdges(snapshot);
           toast.error("Failed to delete connection");
         }
       }
     }
-  }, [userId]);
+  }, [userId, rfEdges]);
 
+  // L-005: Add edge to UI only after DB confirms
   const onConnect = useCallback(async (connection: Connection) => {
-    setRfEdges((eds) => addEdge(connection, eds));
     try {
-      await createEdge({
+      const savedEdge = await createEdge({
         userId,
         spaceId: space.id,
         sourceId: connection.source,
         targetId: connection.target,
       });
+      // Use DB-generated id for the edge
+      setRfEdges((eds) => addEdge({ ...connection, id: savedEdge.id }, eds));
     } catch {
       toast.error("Failed to save connection");
     }

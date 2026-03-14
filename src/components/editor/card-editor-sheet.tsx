@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -7,10 +8,11 @@ import {
   SheetHeader,
 } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { getCard, updateCardTitle, updateCardContent } from "@/actions/cards";
 import { useDebouncedSave } from "@/lib/hooks/use-debounced-save";
 import { PlateEditor } from "./plate-editor";
-import { CheckCircle, Loader2, AlertCircle } from "lucide-react";
+import { CheckCircle, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -29,12 +31,12 @@ export function CardEditorSheet({ open, onOpenChange, nodeId, userId, onUpdated 
   const [content, setContent] = useState<unknown[]>(DEFAULT_CONTENT);
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const contentRef = useRef<unknown[]>(DEFAULT_CONTENT);
   const titleRef = useRef("");
 
-  // Load card data when sheet opens
-  useEffect(() => {
-    if (!open || !nodeId) return;
+  const loadCard = useCallback(() => {
+    setLoadError(false);
     setLoading(true);
     getCard(nodeId, userId)
       .then((card) => {
@@ -45,10 +47,21 @@ export function CardEditorSheet({ open, onOpenChange, nodeId, userId, onUpdated 
         titleRef.current = card.title;
       })
       .catch(() => {
-        setContent(DEFAULT_CONTENT);
+        // L-007: show error state with retry
+        setLoadError(true);
       })
       .finally(() => setLoading(false));
-  }, [open, nodeId, userId]);
+  }, [nodeId, userId]);
+
+  // Load card data when sheet opens
+  useEffect(() => {
+    if (!open || !nodeId) return;
+    loadCard();
+  }, [open, nodeId, loadCard]);
+
+  const handleSaveError = useCallback(() => {
+    setStatus("error");
+  }, []);
 
   const saveContent = useCallback(async () => {
     setStatus("saving");
@@ -62,7 +75,7 @@ export function CardEditorSheet({ open, onOpenChange, nodeId, userId, onUpdated 
     }
   }, [userId, nodeId, onUpdated]);
 
-  const { debouncedSave, flush } = useDebouncedSave(saveContent, 800);
+  const { debouncedSave, flush } = useDebouncedSave(saveContent, 800, handleSaveError);
 
   const handleContentChange = useCallback((value: unknown[]) => {
     contentRef.current = value;
@@ -70,6 +83,7 @@ export function CardEditorSheet({ open, onOpenChange, nodeId, userId, onUpdated 
     debouncedSave();
   }, [debouncedSave]);
 
+  // L-002: Show error feedback on title save failure
   const handleTitleBlur = useCallback(async () => {
     if (!title.trim()) return;
     try {
@@ -77,7 +91,8 @@ export function CardEditorSheet({ open, onOpenChange, nodeId, userId, onUpdated 
       titleRef.current = title.trim();
       onUpdated(nodeId, title.trim(), contentRef.current);
     } catch {
-      // silently fail
+      setStatus("error");
+      setTimeout(() => setStatus("idle"), 2000);
     }
   }, [userId, nodeId, title, onUpdated]);
 
@@ -99,7 +114,7 @@ export function CardEditorSheet({ open, onOpenChange, nodeId, userId, onUpdated 
             placeholder="Untitled"
             className="text-lg font-semibold border-none shadow-none p-0 h-auto focus-visible:ring-0 focus-visible:ring-offset-0"
           />
-          <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+          <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1 h-4">
             {status === "saving" && <><Loader2 className="h-3 w-3 animate-spin" />Saving...</>}
             {status === "saved" && <><CheckCircle className="h-3 w-3 text-green-500" />Saved</>}
             {status === "error" && <><AlertCircle className="h-3 w-3 text-destructive" />Error saving</>}
@@ -112,6 +127,16 @@ export function CardEditorSheet({ open, onOpenChange, nodeId, userId, onUpdated 
               <div className="h-4 bg-muted rounded animate-pulse" />
               <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
               <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+            </div>
+          ) : loadError ? (
+            // L-007: Error state with retry
+            <div className="flex flex-col items-center justify-center py-12 text-center gap-3">
+              <AlertCircle className="h-8 w-8 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">Failed to load card content</p>
+              <Button variant="outline" size="sm" onClick={loadCard}>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Retry
+              </Button>
             </div>
           ) : (
             <PlateEditor

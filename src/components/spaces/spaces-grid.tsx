@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { getSpaces } from "@/actions/spaces";
 import { CreateSpaceDialog } from "./create-space-dialog";
 import { DeleteSpaceDialog } from "./delete-space-dialog";
 import { useRouter } from "next/navigation";
-import { LayoutGrid } from "lucide-react";
+import { LayoutGrid, AlertCircle, RefreshCw } from "lucide-react";
 import type { Space } from "@/lib/db/schema";
 
 interface SpacesGridProps {
@@ -17,14 +18,18 @@ interface SpacesGridProps {
 export function SpacesGrid({ userId }: SpacesGridProps) {
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const router = useRouter();
 
   const loadSpaces = useCallback(async () => {
+    setError(false);
+    setLoading(true);
     try {
       const data = await getSpaces(userId);
       setSpaces(data);
     } catch {
-      // silently fail
+      // CC-001: Show error state to user
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -57,7 +62,16 @@ export function SpacesGrid({ userId }: SpacesGridProps) {
         <CreateSpaceDialog userId={userId} onCreated={loadSpaces} />
       </div>
 
-      {spaces.length === 0 ? (
+      {error ? (
+        <div className="flex flex-col items-center justify-center py-24 text-center gap-3">
+          <AlertCircle className="h-12 w-12 text-muted-foreground" />
+          <p className="text-lg font-medium text-muted-foreground">Failed to load spaces</p>
+          <Button variant="outline" onClick={loadSpaces}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Retry
+          </Button>
+        </div>
+      ) : spaces.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-center">
           <LayoutGrid className="h-12 w-12 text-muted-foreground mb-4" />
           <p className="text-lg font-medium text-muted-foreground">No spaces yet</p>

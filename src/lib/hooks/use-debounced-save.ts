@@ -1,19 +1,28 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 export function useDebouncedSave(
   saveFn: () => Promise<void>,
-  delay = 800
+  delay = 800,
+  onError?: () => void
 ) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveFnRef = useRef(saveFn);
-  saveFnRef.current = saveFn;
+  const onErrorRef = useRef(onError);
+
+  useEffect(() => {
+    saveFnRef.current = saveFn;
+    onErrorRef.current = onError;
+  });
 
   const debouncedSave = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
-      saveFnRef.current();
+      // L-006: catch promise rejections from debounced saves
+      saveFnRef.current().catch(() => {
+        onErrorRef.current?.();
+      });
     }, delay);
   }, [delay]);
 

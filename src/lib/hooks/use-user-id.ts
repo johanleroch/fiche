@@ -16,6 +16,7 @@ export function useUserId(): string | null {
     }
     // Also set cookie for potential server reads
     document.cookie = `fiche-user-id=${id}; path=/; max-age=31536000`;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setUserId(id);
   }, []);
 
