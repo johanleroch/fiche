@@ -7,7 +7,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { createSpace } from "@/actions/spaces";
@@ -41,13 +40,12 @@ export function CreateSpaceDialog({ userId, onCreated }: CreateSpaceDialogProps)
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger>
-        <Button>
-          <Plus className="h-4 w-4 mr-2" />
-          New Space
-        </Button>
-      </DialogTrigger>
+    <>
+      <Button onClick={() => setOpen(true)}>
+        <Plus className="h-4 w-4 mr-2" />
+        New Space
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Create New Space</DialogTitle>
@@ -69,6 +67,7 @@ export function CreateSpaceDialog({ userId, onCreated }: CreateSpaceDialogProps)
           </div>
         </div>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+    </>
   );
 }

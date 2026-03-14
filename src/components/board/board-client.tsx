@@ -26,10 +26,9 @@ export function BoardClient({ spaceId }: BoardClientProps) {
       .catch(() => setError(true));
   }, [userId, spaceId]);
 
-  if (error) {
-    router.push("/");
-    return null;
-  }
+  useEffect(() => {
+    if (error) router.push("/");
+  }, [error, router]);
 
   if (!userId || !data) {
     return (

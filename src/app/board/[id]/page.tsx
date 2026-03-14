@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   description: "Infinite canvas board with rich text cards",
 };
 
-export default function BoardPage({ params }: { params: { id: string } }) {
-  return <BoardClient spaceId={params.id} />;
+export default async function BoardPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  return <BoardClient spaceId={id} />;
 }
