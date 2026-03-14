@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
-  PopoverTrigger,
 } from "@/components/ui/popover";
 import { Share2, Copy, Check } from "lucide-react";
 
@@ -14,6 +13,7 @@ interface SharePanelProps {
 }
 
 export function SharePanel({ userId }: SharePanelProps) {
+  const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
   function getShareUrl() {
@@ -31,12 +31,16 @@ export function SharePanel({ userId }: SharePanelProps) {
   }
 
   return (
-    <Popover>
-      <PopoverTrigger>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Share session">
-          <Share2 className="h-4 w-4" />
-        </Button>
-      </PopoverTrigger>
+    <Popover open={open} onOpenChange={setOpen}>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8"
+        title="Share session"
+        onClick={() => setOpen(true)}
+      >
+        <Share2 className="h-4 w-4" />
+      </Button>
       <PopoverContent className="w-80 p-4" align="end">
         <div className="space-y-3">
           <div>
