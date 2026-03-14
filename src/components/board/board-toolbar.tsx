@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { SharePanel } from "@/components/share-panel";
 import { ArrowLeft, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -8,9 +9,10 @@ interface BoardToolbarProps {
   boardName: string;
   onAddCard: () => void;
   adding?: boolean;
+  userId: string;
 }
 
-export function BoardToolbar({ boardName, onAddCard, adding }: BoardToolbarProps) {
+export function BoardToolbar({ boardName, onAddCard, adding, userId }: BoardToolbarProps) {
   const router = useRouter();
 
   return (
@@ -33,6 +35,7 @@ export function BoardToolbar({ boardName, onAddCard, adding }: BoardToolbarProps
         <Plus className="h-4 w-4 mr-1" />
         Add Card
       </Button>
+      <SharePanel userId={userId} />
     </div>
   );
 }

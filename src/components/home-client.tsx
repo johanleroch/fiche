@@ -2,6 +2,7 @@
 
 import { useUser } from "@/components/providers/user-provider";
 import { SpacesGrid } from "@/components/spaces/spaces-grid";
+import { SharePanel } from "@/components/share-panel";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function HomeClient() {
@@ -25,6 +26,9 @@ export function HomeClient() {
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-6 py-12">
+        <div className="flex items-center justify-end mb-2">
+          <SharePanel userId={userId} />
+        </div>
         <SpacesGrid userId={userId} />
       </div>
     </div>

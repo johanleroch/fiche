@@ -20,6 +20,7 @@ import { CardNode, type CardNodeData } from "./card-node";
 import { BoardToolbar } from "./board-toolbar";
 import { CardEditorSheet } from "@/components/editor/card-editor-sheet";
 import { createNode, updateNodePosition, deleteNode, createEdge, deleteEdge } from "@/actions/board";
+import { useBoardSync } from "@/lib/hooks/use-board-sync";
 import { toast } from "sonner";
 import type { Node as DBNode, Edge as DBEdge, Space } from "@/lib/db/schema";
 
@@ -104,6 +105,34 @@ export function BoardCanvas({ space, initialNodes, initialEdges, userId }: Board
     const timers = positionDebounce.current;
     return () => { timers.forEach((t) => clearTimeout(t)); };
   }, []);
+
+  // Real-time sync: poll DB every 3s and merge changes
+  useBoardSync(space.id, userId, {
+    onNodesUpdate: (dbNodes) => {
+      dispatch({
+        type: "SET_NODES",
+        nodes: dbNodes.map((n) => ({
+          id: n.id,
+          type: "card",
+          position: { x: n.positionX, y: n.positionY },
+          data: {
+            title: n.title,
+            content: n.content as CardNodeData["content"],
+          },
+        })),
+      });
+    },
+    onEdgesUpdate: (dbEdges) => {
+      dispatch({
+        type: "SET_EDGES",
+        edges: dbEdges.map((e) => ({
+          id: e.id,
+          source: e.sourceId,
+          target: e.targetId,
+        })),
+      });
+    },
+  });
 
   const onNodesChange = useCallback(async (changes: NodeChange<RFNode<CardNodeData>>[]) => {
     const removes = changes.filter((c) => c.type === "remove");
@@ -219,7 +248,7 @@ export function BoardCanvas({ space, initialNodes, initialEdges, userId }: Board
 
   return (
     <div className="w-full h-screen relative">
-      <BoardToolbar boardName={space.name} onAddCard={handleAddCard} adding={state.adding} />
+      <BoardToolbar boardName={space.name} onAddCard={handleAddCard} adding={state.adding} userId={userId} />
 
       <ReactFlow
         nodes={state.rfNodes}
