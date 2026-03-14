@@ -58,7 +58,6 @@ export function CreateSpaceDialog({ userId, onCreated }: CreateSpaceDialogProps)
             value={name}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
             onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === "Enter" && handleCreate()}
-            autoFocus
           />
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setOpen(false)}>
