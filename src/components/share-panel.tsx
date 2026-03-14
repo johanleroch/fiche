@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -15,6 +15,7 @@ interface SharePanelProps {
 export function SharePanel({ userId }: SharePanelProps) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement>(null);
 
   function getShareUrl() {
     const url = new URL(window.location.href);
@@ -31,17 +32,19 @@ export function SharePanel({ userId }: SharePanelProps) {
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <>
       <Button
+        ref={anchorRef}
         variant="ghost"
         size="icon"
         className="h-8 w-8"
         title="Share session"
-        onClick={() => setOpen(true)}
+        onClick={() => setOpen((o) => !o)}
       >
         <Share2 className="h-4 w-4" />
       </Button>
-      <PopoverContent className="w-80 p-4" align="end">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverContent anchor={anchorRef} className="w-80 p-4" align="end">
         <div className="space-y-3">
           <div>
             <p className="text-sm font-medium">Share session</p>
@@ -62,7 +65,8 @@ export function SharePanel({ userId }: SharePanelProps) {
             )}
           </Button>
         </div>
-      </PopoverContent>
-    </Popover>
+        </PopoverContent>
+      </Popover>
+    </>
   );
 }
