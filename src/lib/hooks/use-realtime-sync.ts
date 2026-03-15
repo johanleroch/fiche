@@ -82,6 +82,8 @@ export function useRealtimeSync(
         const edges = data.edges as Edge[];
         callbacksRef.current.onNodesUpdate(nodes);
         callbacksRef.current.onEdgesUpdate(edges);
+        // DB has final positions — clear all remote drag interpolation
+        setRemoteDragPositions([]);
       } else if (type === "cursor-move") {
         if ((data.browserId as string) === browserId) return;
         setCursors((prev) =>

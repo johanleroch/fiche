@@ -229,8 +229,10 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
 
   const onNodeDragStart: OnNodeDrag = useCallback((_event, node) => {
     isDraggingRef.current = true;
+    // Clear any lingering remote drag transition to avoid lag on local drag
+    clearRemoteDrag(node.id);
     broadcastSelection(node.id);
-  }, [broadcastSelection]);
+  }, [broadcastSelection, clearRemoteDrag]);
 
   // Stream drag position to other users for smooth movement
   const onNodeDrag: OnNodeDrag = useCallback((_event, node) => {
