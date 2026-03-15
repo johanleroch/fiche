@@ -168,22 +168,8 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // After undo, sync the restored node positions to DB
-  const prevUndoCount = useRef(0);
-  useEffect(() => {
-    if (undoCountRef.current > prevUndoCount.current) {
-      prevUndoCount.current = undoCountRef.current;
-      // Sync all node positions to DB after undo
-      for (const node of state.rfNodes) {
-        updateNodePosition({
-          userId,
-          nodeId: node.id,
-          positionX: node.position.x,
-          positionY: node.position.y,
-        }).catch(() => {});
-      }
-    }
-  }, [state.rfNodes, state.rfEdges, userId]);
+  // After undo, the board-update SSE from server actions will sync other clients.
+  // No extra DB sync needed here since undo restores to a state that was already persisted.
 
   // Listen for delete-edge custom events from DeletableEdge component
   useEffect(() => {
@@ -314,7 +300,6 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
   const onNodeDragStart: OnNodeDrag = useCallback((_event, node) => {
     isDraggingRef.current = true;
     didDragRef.current = true;
-    dispatch({ type: "SAVE_SNAPSHOT" });
     // Clear any lingering remote drag transition to avoid lag on local drag
     clearRemoteDrag(node.id);
     broadcastSelection(node.id);
