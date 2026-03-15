@@ -32,7 +32,19 @@ export const edges = pgTable("edges", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const presence = pgTable("presence", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  spaceId: uuid("space_id").references(() => spaces.id, { onDelete: "cascade" }).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  browserId: text("browser_id").notNull().unique(),
+  cursorX: real("cursor_x").notNull().default(0),
+  cursorY: real("cursor_y").notNull().default(0),
+  color: text("color").notNull().default("#6366f1"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type Space = typeof spaces.$inferSelect;
 export type Node = typeof nodes.$inferSelect;
 export type Edge = typeof edges.$inferSelect;
+export type Presence = typeof presence.$inferSelect;

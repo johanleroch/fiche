@@ -54,3 +54,22 @@ export const updateCardContentSchema = z.object({
   nodeId: uuidSchema,
   content: z.array(z.any()).min(1),
 });
+
+export const updatePresenceSchema = z.object({
+  userId: uuidSchema,
+  spaceId: uuidSchema,
+  browserId: z.string().min(1),
+  cursorX: z.number(),
+  cursorY: z.number(),
+  color: z.string().min(1),
+});
+
+export const getPresenceSchema = z.object({
+  spaceId: uuidSchema,
+  userId: uuidSchema,
+  browserId: z.string().min(1),
+});
+
+export const deletePresenceSchema = z.object({
+  browserId: z.string().min(1),
+});

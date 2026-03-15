@@ -33,7 +33,11 @@ const CardNodeComponent = ({ data, selected }: NodeProps<CardNode>) => {
           {preview}
         </div>
       )}
-      <Handle type="source" position={Position.Bottom} className="!bg-muted-foreground/40 !border-none !w-2 !h-2" />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!bg-primary/60 !border-2 !border-primary !w-3 !h-3 hover:!bg-primary hover:!scale-125 !transition-all !duration-150"
+      />
     </div>
   );
 };

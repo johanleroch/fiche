@@ -3,24 +3,30 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import {
   ReactFlow,
+  ReactFlowProvider,
   Background,
   BackgroundVariant,
   Controls,
   addEdge,
   applyEdgeChanges,
   applyNodeChanges,
+  useReactFlow,
   type Connection,
   type Edge as RFEdge,
   type Node as RFNode,
   type NodeChange,
   type EdgeChange,
   type OnNodeDrag,
+  type OnConnectStart,
+  type OnConnectEnd,
 } from "@xyflow/react";
 import { CardNode, type CardNodeData } from "./card-node";
+import { CursorOverlay } from "./cursor-overlay";
 import { BoardToolbar } from "./board-toolbar";
 import { CardEditorSheet } from "@/components/editor/card-editor-sheet";
 import { createNode, updateNodePosition, deleteNode, createEdge, deleteEdge } from "@/actions/board";
-import { useBoardSync } from "@/lib/hooks/use-board-sync";
+import { useRealtimeSync } from "@/lib/hooks/use-realtime-sync";
+import { createBoardChannel } from "@/lib/realtime/broadcast-channel";
 import { toast } from "sonner";
 import type { Node as DBNode, Edge as DBEdge, Space } from "@/lib/db/schema";
 
@@ -78,7 +84,15 @@ function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
   }
 }
 
-export function BoardCanvas({ space, initialNodes, initialEdges, userId }: BoardCanvasProps) {
+export function BoardCanvas(props: BoardCanvasProps) {
+  return (
+    <ReactFlowProvider>
+      <BoardCanvasInner {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCanvasProps) {
   const [state, dispatch] = useReducer(canvasReducer, {
     rfNodes: initialNodes.map((n) => ({
       id: n.id,
@@ -100,14 +114,25 @@ export function BoardCanvas({ space, initialNodes, initialEdges, userId }: Board
   });
 
   const positionDebounce = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const isDraggingRef = useRef(false);
+  const pendingSavesRef = useRef(0);
+  const connectingNodeId = useRef<string | null>(null);
+  const { screenToFlowPosition } = useReactFlow();
 
   useEffect(() => {
     const timers = positionDebounce.current;
     return () => { timers.forEach((t) => clearTimeout(t)); };
   }, []);
 
-  // Real-time sync: poll DB every 3s and merge changes
-  useBoardSync(space.id, userId, {
+  // BroadcastChannel ref for notifying other same-device tabs after local mutations
+  const bcRef = useRef<ReturnType<typeof createBoardChannel> | null>(null);
+  useEffect(() => {
+    bcRef.current = createBoardChannel(space.id);
+    return () => { bcRef.current?.close(); bcRef.current = null; };
+  }, [space.id]);
+
+  // Real-time sync via SSE + BroadcastChannel (replaces polling)
+  const { cursors, onMouseMove } = useRealtimeSync(space.id, userId, {
     onNodesUpdate: (dbNodes) => {
       dispatch({
         type: "SET_NODES",
@@ -132,7 +157,7 @@ export function BoardCanvas({ space, initialNodes, initialEdges, userId }: Board
         })),
       });
     },
-  });
+  }, isDraggingRef, pendingSavesRef);
 
   const onNodesChange = useCallback(async (changes: NodeChange<RFNode<CardNodeData>>[]) => {
     const removes = changes.filter((c) => c.type === "remove");
@@ -194,16 +219,29 @@ export function BoardCanvas({ space, initialNodes, initialEdges, userId }: Board
     }
   }, [userId, space.id, state.rfEdges]);
 
+  const onNodeDragStart: OnNodeDrag = useCallback(() => {
+    isDraggingRef.current = true;
+  }, []);
+
   const onNodeDragStop: OnNodeDrag = useCallback((_event, node) => {
+    isDraggingRef.current = false;
     const existing = positionDebounce.current.get(node.id);
     if (existing) clearTimeout(existing);
-    const timer = setTimeout(() => {
-      updateNodePosition({
-        userId,
-        nodeId: node.id,
-        positionX: node.position.x,
-        positionY: node.position.y,
-      }).catch(() => toast.error("Failed to save position"));
+
+    pendingSavesRef.current += 1;
+    const timer = setTimeout(async () => {
+      try {
+        await updateNodePosition({
+          userId,
+          nodeId: node.id,
+          positionX: node.position.x,
+          positionY: node.position.y,
+        });
+      } catch {
+        toast.error("Failed to save position");
+      } finally {
+        pendingSavesRef.current -= 1;
+      }
     }, 800);
     positionDebounce.current.set(node.id, timer);
   }, [userId]);
@@ -237,6 +275,58 @@ export function BoardCanvas({ space, initialNodes, initialEdges, userId }: Board
     }
   }, [userId, space.id]);
 
+  const onConnectStart: OnConnectStart = useCallback((_event, { nodeId }) => {
+    connectingNodeId.current = nodeId;
+  }, []);
+
+  // Mind-map: drag handle to empty canvas → create child node + edge
+  const onConnectEnd: OnConnectEnd = useCallback(async (event) => {
+    const parentNodeId = connectingNodeId.current;
+    connectingNodeId.current = null;
+
+    // If dropped on an existing node, onConnect handles it — skip here
+    const targetIsPane = (event.target as Element).classList.contains("react-flow__pane");
+    if (!targetIsPane || !parentNodeId) return;
+
+    const position = screenToFlowPosition({
+      x: (event as MouseEvent).clientX,
+      y: (event as MouseEvent).clientY,
+    });
+
+    dispatch({ type: "SET_ADDING", adding: true });
+    try {
+      const node = await createNode({
+        userId,
+        spaceId: space.id,
+        positionX: position.x,
+        positionY: position.y,
+      });
+
+      const rfNode: RFNode<CardNodeData> = {
+        id: node.id,
+        type: "card",
+        position: { x: node.positionX, y: node.positionY },
+        data: { title: node.title, content: node.content as CardNodeData["content"] },
+      };
+      dispatch({ type: "ADD_NODE", node: rfNode });
+
+      const savedEdge = await createEdge({
+        userId,
+        spaceId: space.id,
+        sourceId: parentNodeId,
+        targetId: node.id,
+      });
+      dispatch({
+        type: "SET_EDGES",
+        edges: [...state.rfEdges, { id: savedEdge.id, source: parentNodeId, target: node.id }],
+      });
+    } catch {
+      toast.error("Failed to create card");
+    } finally {
+      dispatch({ type: "SET_ADDING", adding: false });
+    }
+  }, [userId, space.id, state.rfEdges, screenToFlowPosition]);
+
   const handleCardUpdated = useCallback((nodeId: string, title: string, content: unknown[]) => {
     dispatch({
       type: "UPDATE_NODE_DATA",
@@ -247,7 +337,7 @@ export function BoardCanvas({ space, initialNodes, initialEdges, userId }: Board
   }, []);
 
   return (
-    <div className="w-full h-screen relative">
+    <div className="w-full h-screen relative" onMouseMove={onMouseMove}>
       <BoardToolbar boardName={space.name} onAddCard={handleAddCard} adding={state.adding} userId={userId} />
 
       <ReactFlow
@@ -256,6 +346,9 @@ export function BoardCanvas({ space, initialNodes, initialEdges, userId }: Board
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onConnectStart={onConnectStart}
+        onConnectEnd={onConnectEnd}
+        onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onNodeDoubleClick={onNodeDoubleClick}
         nodeTypes={nodeTypes}
@@ -265,6 +358,7 @@ export function BoardCanvas({ space, initialNodes, initialEdges, userId }: Board
       >
         <Background variant={BackgroundVariant.Lines} gap={32} color="#e5e7eb" lineWidth={1} />
         <Controls showInteractive={false} />
+        <CursorOverlay cursors={cursors} />
       </ReactFlow>
 
       {state.selectedNodeId && (
