@@ -39,6 +39,7 @@ export function useRealtimeSync(
   const [browserId] = useState(() => crypto.randomUUID());
   const [color] = useState(() => pickColor(browserId));
   const [cursors, setCursors] = useState<RemoteCursor[]>([]);
+  const peerCountRef = useRef(1);
   const lastSentRef = useRef(0);
   const callbacksRef = useRef(callbacks);
   const { screenToFlowPosition } = useReactFlow();
@@ -97,6 +98,11 @@ export function useRealtimeSync(
 
     es.addEventListener("cursor-leave", (e) => {
       handleMessage("cursor-leave", JSON.parse(e.data));
+    });
+
+    es.addEventListener("peer-count", (e) => {
+      const { count } = JSON.parse(e.data);
+      peerCountRef.current = count;
     });
 
     // On reconnect, catch up from DB
@@ -174,6 +180,9 @@ export function useRealtimeSync(
 
   const onMouseMove = useCallback(
     (e: React.MouseEvent) => {
+      // Skip cursor broadcasting when alone — nobody to see it
+      if (peerCountRef.current <= 1) return;
+
       const now = Date.now();
       if (now - lastSentRef.current < 300) return;
       lastSentRef.current = now;

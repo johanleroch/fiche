@@ -8,7 +8,11 @@ export async function POST(request: Request) {
     return new Response(null, { status: 400 });
   }
 
-  publish(spaceId, "cursor-move", { browserId, cursorX, cursorY, color });
+  if (body.type === "leave") {
+    publish(spaceId, "cursor-leave", { browserId });
+  } else {
+    publish(spaceId, "cursor-move", { browserId, cursorX, cursorY, color });
+  }
 
   return new Response(null, { status: 204 });
 }
