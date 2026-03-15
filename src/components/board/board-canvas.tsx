@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -120,6 +120,8 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
   const isDraggingRef = useRef(false);
   const pendingSavesRef = useRef(0);
   const connectingNodeId = useRef<string | null>(null);
+  const edgeHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showDeleteEdgeId, setShowDeleteEdgeId] = useState<string | null>(null);
   const { screenToFlowPosition } = useReactFlow();
 
   useEffect(() => {
@@ -295,6 +297,21 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
     broadcastSelection(null);
   }, [broadcastSelection]);
 
+  const onEdgeMouseEnter = useCallback((_event: React.MouseEvent, edge: RFEdge) => {
+    if (edgeHoverTimer.current) clearTimeout(edgeHoverTimer.current);
+    edgeHoverTimer.current = setTimeout(() => {
+      setShowDeleteEdgeId(edge.id);
+    }, 500);
+  }, []);
+
+  const onEdgeMouseLeave = useCallback(() => {
+    if (edgeHoverTimer.current) {
+      clearTimeout(edgeHoverTimer.current);
+      edgeHoverTimer.current = null;
+    }
+    setShowDeleteEdgeId(null);
+  }, []);
+
   const handleAddCard = useCallback(async () => {
     dispatch({ type: "SET_ADDING", adding: true });
     try {
@@ -395,6 +412,16 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
     });
   }, [state.rfNodes, remoteSelections, remoteDragPositions]);
 
+  // Inject showDelete flag into the hovered edge
+  const displayEdges = useMemo(() => {
+    if (!showDeleteEdgeId) return state.rfEdges;
+    return state.rfEdges.map((edge) =>
+      edge.id === showDeleteEdgeId
+        ? { ...edge, data: { ...edge.data, showDelete: true } }
+        : edge,
+    );
+  }, [state.rfEdges, showDeleteEdgeId]);
+
   const handleCardUpdated = useCallback((nodeId: string, title: string, content: unknown[]) => {
     dispatch({
       type: "UPDATE_NODE_DATA",
@@ -410,7 +437,7 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
 
       <ReactFlow
         nodes={displayNodes}
-        edges={state.rfEdges}
+        edges={displayEdges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
@@ -421,6 +448,8 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
         onNodeDragStop={onNodeDragStop}
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
+        onEdgeMouseEnter={onEdgeMouseEnter}
+        onEdgeMouseLeave={onEdgeMouseLeave}
         onNodeDoubleClick={onNodeDoubleClick}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
