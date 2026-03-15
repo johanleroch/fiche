@@ -52,7 +52,7 @@ function DeletableEdgeComponent({
         fill="none"
         strokeWidth={20}
         stroke="transparent"
-        className="react-flow__edge-interaction"
+        pointerEvents="stroke"
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
       />
