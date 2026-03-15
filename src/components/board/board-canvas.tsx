@@ -26,6 +26,7 @@ import { CursorOverlay } from "./cursor-overlay";
 import { BoardToolbar } from "./board-toolbar";
 import { CardEditorSheet } from "@/components/editor/card-editor-sheet";
 import { createNode, updateNodePosition, deleteNode, createEdge, deleteEdge } from "@/actions/board";
+import { computeTreeLayout } from "@/lib/layout/tree-layout";
 import { useRealtimeSync } from "@/lib/hooks/use-realtime-sync";
 import { createBoardChannel } from "@/lib/realtime/broadcast-channel";
 import { toast } from "sonner";
@@ -118,6 +119,7 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
 
   const positionDebounce = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const isDraggingRef = useRef(false);
+  const didDragRef = useRef(false);
   const pendingSavesRef = useRef(0);
   const connectingNodeId = useRef<string | null>(null);
   const edgeHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -251,6 +253,7 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
 
   const onNodeDragStart: OnNodeDrag = useCallback((_event, node) => {
     isDraggingRef.current = true;
+    didDragRef.current = true;
     // Clear any lingering remote drag transition to avoid lag on local drag
     clearRemoteDrag(node.id);
     broadcastSelection(node.id);
@@ -289,9 +292,102 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
     dispatch({ type: "OPEN_SHEET", nodeId: node.id });
   }, []);
 
-  const onNodeClick = useCallback((_event: React.MouseEvent, node: RFNode) => {
-    broadcastSelection(node.id);
-  }, [broadcastSelection]);
+  // Apply tree layout to all nodes and save positions to DB
+  const applyLayout = useCallback(
+    async (nodes: RFNode<CardNodeData>[], edges: RFEdge[]) => {
+      const positions = computeTreeLayout(
+        nodes.map((n) => ({ id: n.id, x: n.position.x, y: n.position.y })),
+        edges.map((e) => ({ source: e.source, target: e.target })),
+      );
+
+      const repositioned = nodes.map((n) => {
+        const pos = positions.get(n.id);
+        if (!pos) return n;
+        return { ...n, position: { x: pos.x, y: pos.y } };
+      });
+
+      dispatch({ type: "SET_NODES", nodes: repositioned });
+
+      // Save all changed positions to DB (fire and forget)
+      for (const node of repositioned) {
+        const original = nodes.find((n) => n.id === node.id);
+        if (
+          original &&
+          (original.position.x !== node.position.x ||
+            original.position.y !== node.position.y)
+        ) {
+          updateNodePosition({
+            userId,
+            nodeId: node.id,
+            positionX: node.position.x,
+            positionY: node.position.y,
+          }).catch(() => {});
+        }
+      }
+
+      return repositioned;
+    },
+    [userId],
+  );
+
+  const onNodeClick = useCallback(
+    async (_event: React.MouseEvent, node: RFNode) => {
+      // If we just dragged, don't create a child — just broadcast selection
+      if (didDragRef.current) {
+        didDragRef.current = false;
+        broadcastSelection(node.id);
+        return;
+      }
+
+      broadcastSelection(node.id);
+
+      if (state.adding) return;
+      dispatch({ type: "SET_ADDING", adding: true });
+
+      try {
+        // Create child node with a temporary position (layout will fix it)
+        const childNode = await createNode({
+          userId,
+          spaceId: space.id,
+          positionX: node.position.x,
+          positionY: node.position.y + 150,
+        });
+
+        const rfChild: RFNode<CardNodeData> = {
+          id: childNode.id,
+          type: "card",
+          position: { x: childNode.positionX, y: childNode.positionY },
+          data: {
+            title: childNode.title,
+            content: childNode.content as CardNodeData["content"],
+          },
+        };
+
+        const savedEdge = await createEdge({
+          userId,
+          spaceId: space.id,
+          sourceId: node.id,
+          targetId: childNode.id,
+        });
+
+        const newNodes = [...state.rfNodes, rfChild];
+        const newEdges = [
+          ...state.rfEdges,
+          { id: savedEdge.id, source: node.id, target: childNode.id, type: "deletable" },
+        ];
+
+        dispatch({ type: "SET_EDGES", edges: newEdges });
+
+        // Auto-layout the entire tree
+        await applyLayout(newNodes, newEdges);
+      } catch {
+        toast.error("Failed to create card");
+      } finally {
+        dispatch({ type: "SET_ADDING", adding: false });
+      }
+    },
+    [broadcastSelection, userId, space.id, state.rfNodes, state.rfEdges, state.adding, applyLayout],
+  );
 
   const onPaneClick = useCallback(() => {
     broadcastSelection(null);
@@ -378,16 +474,18 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
         sourceId: parentNodeId,
         targetId: node.id,
       });
-      dispatch({
-        type: "SET_EDGES",
-        edges: [...state.rfEdges, { id: savedEdge.id, source: parentNodeId, target: node.id, type: "deletable" }],
-      });
+      const newEdges = [...state.rfEdges, { id: savedEdge.id, source: parentNodeId, target: node.id, type: "deletable" }];
+      const newNodes = [...state.rfNodes, rfNode];
+      dispatch({ type: "SET_EDGES", edges: newEdges });
+
+      // Auto-layout the tree
+      await applyLayout(newNodes, newEdges);
     } catch {
       toast.error("Failed to create card");
     } finally {
       dispatch({ type: "SET_ADDING", adding: false });
     }
-  }, [userId, space.id, state.rfEdges, screenToFlowPosition]);
+  }, [userId, space.id, state.rfEdges, state.rfNodes, screenToFlowPosition, applyLayout]);
 
   // Merge remote selections and drag positions into display nodes
   const displayNodes = useMemo(() => {
