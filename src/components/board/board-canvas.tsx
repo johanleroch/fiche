@@ -175,7 +175,6 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
   useEffect(() => {
     const handler = async (e: Event) => {
       const edgeId = (e as CustomEvent).detail.edgeId as string;
-      dispatch({ type: "SAVE_SNAPSHOT" });
       const snapshot = state.rfEdges;
       dispatch({ type: "SET_EDGES", edges: state.rfEdges.filter((edge) => edge.id !== edgeId) });
       try {
@@ -240,8 +239,6 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
       dispatch({ type: "SET_NODES", nodes: applyNodeChanges(others, state.rfNodes) });
     }
 
-    if (removes.length > 0) dispatch({ type: "SAVE_SNAPSHOT" });
-
     for (const change of removes) {
       if (change.type === "remove") {
         dispatch({ type: "SET_NODES", nodes: applyNodeChanges([change], state.rfNodes) });
@@ -263,8 +260,6 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
       dispatch({ type: "SET_EDGES", edges: applyEdgeChanges(others, state.rfEdges) });
     }
 
-    if (removes.length > 0) dispatch({ type: "SAVE_SNAPSHOT" });
-
     for (const change of removes) {
       if (change.type === "remove") {
         const snapshot = state.rfEdges;
@@ -280,7 +275,6 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
   }, [userId, state.rfEdges]);
 
   const onConnect = useCallback(async (connection: Connection) => {
-    dispatch({ type: "SAVE_SNAPSHOT" });
     try {
       const savedEdge = await createEdge({
         userId,
@@ -387,7 +381,6 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
     broadcastSelection(node.id);
     if (state.adding) return;
 
-    dispatch({ type: "SAVE_SNAPSHOT" });
     dispatch({ type: "SET_ADDING", adding: true });
 
     try {
@@ -447,7 +440,6 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
   }, []);
 
   const handleAddCard = useCallback(async () => {
-    dispatch({ type: "SAVE_SNAPSHOT" });
     dispatch({ type: "SET_ADDING", adding: true });
     try {
       const node = await createNode({
@@ -484,8 +476,6 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
     // If dropped on an existing node, onConnect handles it — skip here
     const targetIsPane = (event.target as Element).classList.contains("react-flow__pane");
     if (!targetIsPane || !parentNodeId) return;
-
-    dispatch({ type: "SAVE_SNAPSHOT" });
 
     const position = screenToFlowPosition({
       x: (event as MouseEvent).clientX,
