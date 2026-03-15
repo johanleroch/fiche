@@ -437,8 +437,8 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
           { id: savedEdge.id, source: parentId, target: childNode.id, type: "deletable" },
         ];
 
+        dispatch({ type: "SET_NODES", nodes: newNodes });
         dispatch({ type: "SET_EDGES", edges: newEdges });
-        await applyLayout(newNodes, newEdges);
       } catch {
         toast.error("Failed to create card");
       } finally {
@@ -447,7 +447,7 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
     };
     window.addEventListener("add-child-node", handler);
     return () => window.removeEventListener("add-child-node", handler);
-  }, [userId, space.id, state.rfNodes, state.rfEdges, state.adding, applyLayout]);
+  }, [userId, space.id, state.rfNodes, state.rfEdges, state.adding]);
 
   const onPaneClick = useCallback(() => {
     broadcastSelection(null);
@@ -539,16 +539,14 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
       });
       const newEdges = [...state.rfEdges, { id: savedEdge.id, source: parentNodeId, target: node.id, type: "deletable" }];
       const newNodes = [...state.rfNodes, rfNode];
+      dispatch({ type: "SET_NODES", nodes: newNodes });
       dispatch({ type: "SET_EDGES", edges: newEdges });
-
-      // Auto-layout the tree
-      await applyLayout(newNodes, newEdges);
     } catch {
       toast.error("Failed to create card");
     } finally {
       dispatch({ type: "SET_ADDING", adding: false });
     }
-  }, [userId, space.id, state.rfEdges, state.rfNodes, screenToFlowPosition, applyLayout]);
+  }, [userId, space.id, state.rfEdges, state.rfNodes, screenToFlowPosition]);
 
   // Merge remote selections and drag positions into display nodes
   const displayNodes = useMemo(() => {
@@ -583,6 +581,11 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
     );
   }, [state.rfEdges, showDeleteEdgeId]);
 
+  const handleAutoLayout = useCallback(async () => {
+    dispatch({ type: "SAVE_SNAPSHOT" });
+    await applyLayout(state.rfNodes, state.rfEdges);
+  }, [state.rfNodes, state.rfEdges, applyLayout]);
+
   const handleCardUpdated = useCallback((nodeId: string, title: string, content: unknown[]) => {
     dispatch({
       type: "UPDATE_NODE_DATA",
@@ -594,7 +597,7 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
 
   return (
     <div className="w-full h-screen relative" onMouseMove={onMouseMove}>
-      <BoardToolbar boardName={space.name} onAddCard={handleAddCard} adding={state.adding} userId={userId} />
+      <BoardToolbar boardName={space.name} onAddCard={handleAddCard} onAutoLayout={handleAutoLayout} adding={state.adding} userId={userId} />
 
       <ReactFlow
         nodes={displayNodes}

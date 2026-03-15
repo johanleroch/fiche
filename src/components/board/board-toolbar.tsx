@@ -2,17 +2,18 @@
 
 import { Button } from "@/components/ui/button";
 import { SharePanel } from "@/components/share-panel";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft, Plus, Wand2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 interface BoardToolbarProps {
   boardName: string;
   onAddCard: () => void;
+  onAutoLayout: () => void;
   adding?: boolean;
   userId: string;
 }
 
-export function BoardToolbar({ boardName, onAddCard, adding, userId }: BoardToolbarProps) {
+export function BoardToolbar({ boardName, onAddCard, onAutoLayout, adding, userId }: BoardToolbarProps) {
   const router = useRouter();
 
   return (
@@ -34,6 +35,15 @@ export function BoardToolbar({ boardName, onAddCard, adding, userId }: BoardTool
       >
         <Plus className="h-4 w-4 mr-1" />
         Add Card
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onAutoLayout}
+        className="h-8"
+        title="Auto-layout"
+      >
+        <Wand2 className="h-4 w-4" />
       </Button>
       <SharePanel userId={userId} />
     </div>
