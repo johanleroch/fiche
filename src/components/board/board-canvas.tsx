@@ -371,54 +371,58 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
   );
 
   // Click on node = create child below. Drag is excluded via didDragRef.
-  const onNodeClick = useCallback(async (_event: React.MouseEvent, node: RFNode) => {
-    if (didDragRef.current) {
-      didDragRef.current = false;
-      broadcastSelection(node.id);
-      return;
-    }
-
+  const onNodeClick = useCallback((_event: React.MouseEvent, node: RFNode) => {
+    didDragRef.current = false;
     broadcastSelection(node.id);
-    if (state.adding) return;
+  }, [broadcastSelection]);
 
-    dispatch({ type: "SET_ADDING", adding: true });
+  // Add child node via "+" button on card (custom event from card-node)
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const parentId = (e as CustomEvent).detail.parentId as string;
+      const parentNode = state.rfNodes.find((n) => n.id === parentId);
+      if (!parentNode || state.adding) return;
 
-    try {
-      const childNode = await createNode({
-        userId,
-        spaceId: space.id,
-        positionX: node.position.x,
-        positionY: node.position.y + 150,
-      });
+      dispatch({ type: "SET_ADDING", adding: true });
+      try {
+        const childNode = await createNode({
+          userId,
+          spaceId: space.id,
+          positionX: parentNode.position.x,
+          positionY: parentNode.position.y + 150,
+        });
 
-      const rfChild: RFNode<CardNodeData> = {
-        id: childNode.id,
-        type: "card",
-        position: { x: childNode.positionX, y: childNode.positionY },
-        data: {
-          title: childNode.title,
-          content: childNode.content as CardNodeData["content"],
-        },
-      };
+        const rfChild: RFNode<CardNodeData> = {
+          id: childNode.id,
+          type: "card",
+          position: { x: childNode.positionX, y: childNode.positionY },
+          data: {
+            title: childNode.title,
+            content: childNode.content as CardNodeData["content"],
+          },
+        };
 
-      const savedEdge = await createEdge({
-        userId,
-        spaceId: space.id,
-        sourceId: node.id,
-        targetId: childNode.id,
-      });
+        const savedEdge = await createEdge({
+          userId,
+          spaceId: space.id,
+          sourceId: parentId,
+          targetId: childNode.id,
+        });
 
-      dispatch({ type: "SET_NODES", nodes: [...state.rfNodes, rfChild] });
-      dispatch({
-        type: "SET_EDGES",
-        edges: [...state.rfEdges, { id: savedEdge.id, source: node.id, target: childNode.id, type: "deletable" }],
-      });
-    } catch {
-      toast.error("Failed to create card");
-    } finally {
-      dispatch({ type: "SET_ADDING", adding: false });
-    }
-  }, [broadcastSelection, userId, space.id, state.rfNodes, state.rfEdges, state.adding]);
+        dispatch({ type: "SET_NODES", nodes: [...state.rfNodes, rfChild] });
+        dispatch({
+          type: "SET_EDGES",
+          edges: [...state.rfEdges, { id: savedEdge.id, source: parentId, target: childNode.id, type: "deletable" }],
+        });
+      } catch {
+        toast.error("Failed to create card");
+      } finally {
+        dispatch({ type: "SET_ADDING", adding: false });
+      }
+    };
+    window.addEventListener("add-child-node", handler);
+    return () => window.removeEventListener("add-child-node", handler);
+  }, [userId, space.id, state.rfNodes, state.rfEdges, state.adding]);
 
   const onPaneClick = useCallback(() => {
     broadcastSelection(null);
