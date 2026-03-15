@@ -21,6 +21,7 @@ import {
   type OnConnectEnd,
 } from "@xyflow/react";
 import { CardNode, type CardNodeData } from "./card-node";
+import { DeletableEdge } from "./deletable-edge";
 import { CursorOverlay } from "./cursor-overlay";
 import { BoardToolbar } from "./board-toolbar";
 import { CardEditorSheet } from "@/components/editor/card-editor-sheet";
@@ -31,6 +32,7 @@ import { toast } from "sonner";
 import type { Node as DBNode, Edge as DBEdge, Space } from "@/lib/db/schema";
 
 const nodeTypes = { card: CardNode };
+const edgeTypes = { deletable: DeletableEdge };
 
 interface BoardCanvasProps {
   space: Space;
@@ -107,6 +109,7 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
       id: e.id,
       source: e.sourceId,
       target: e.targetId,
+      type: "deletable",
     })),
     selectedNodeId: null,
     sheetOpen: false,
@@ -123,6 +126,23 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
     const timers = positionDebounce.current;
     return () => { timers.forEach((t) => clearTimeout(t)); };
   }, []);
+
+  // Listen for delete-edge custom events from DeletableEdge component
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const edgeId = (e as CustomEvent).detail.edgeId as string;
+      const snapshot = state.rfEdges;
+      dispatch({ type: "SET_EDGES", edges: state.rfEdges.filter((edge) => edge.id !== edgeId) });
+      try {
+        await deleteEdge({ userId, edgeId });
+      } catch {
+        dispatch({ type: "SET_EDGES", edges: snapshot });
+        toast.error("Failed to delete connection");
+      }
+    };
+    window.addEventListener("delete-edge", handler);
+    return () => window.removeEventListener("delete-edge", handler);
+  }, [userId, state.rfEdges]);
 
   // BroadcastChannel ref for notifying other same-device tabs after local mutations
   const bcRef = useRef<ReturnType<typeof createBoardChannel> | null>(null);
@@ -343,7 +363,7 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
       });
       dispatch({
         type: "SET_EDGES",
-        edges: [...state.rfEdges, { id: savedEdge.id, source: parentNodeId, target: node.id }],
+        edges: [...state.rfEdges, { id: savedEdge.id, source: parentNodeId, target: node.id, type: "deletable" }],
       });
     } catch {
       toast.error("Failed to create card");
@@ -403,6 +423,8 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
         onPaneClick={onPaneClick}
         onNodeDoubleClick={onNodeDoubleClick}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        defaultEdgeOptions={{ type: "deletable" }}
         fitView
         deleteKeyCode={["Delete", "Backspace"]}
         className={`bg-background ${remoteDragPositions.length > 0 ? "remote-dragging" : ""}`}
