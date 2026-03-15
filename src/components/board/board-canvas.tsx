@@ -391,28 +391,27 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
     [userId],
   );
 
-  const onNodeClick = useCallback(
-    async (_event: React.MouseEvent, node: RFNode) => {
-      // If we just dragged, don't create a child — just broadcast selection
-      if (didDragRef.current) {
-        didDragRef.current = false;
-        broadcastSelection(node.id);
-        return;
-      }
+  const onNodeClick = useCallback((_event: React.MouseEvent, node: RFNode) => {
+    didDragRef.current = false;
+    broadcastSelection(node.id);
+  }, [broadcastSelection]);
 
-      broadcastSelection(node.id);
+  // Add child node via "+" button on card (custom event from card-node)
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const parentId = (e as CustomEvent).detail.parentId as string;
+      const parentNode = state.rfNodes.find((n) => n.id === parentId);
+      if (!parentNode || state.adding) return;
 
-      if (state.adding) return;
       dispatch({ type: "SAVE_SNAPSHOT" });
       dispatch({ type: "SET_ADDING", adding: true });
 
       try {
-        // Create child node with a temporary position (layout will fix it)
         const childNode = await createNode({
           userId,
           spaceId: space.id,
-          positionX: node.position.x,
-          positionY: node.position.y + 150,
+          positionX: parentNode.position.x,
+          positionY: parentNode.position.y + 150,
         });
 
         const rfChild: RFNode<CardNodeData> = {
@@ -428,28 +427,27 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
         const savedEdge = await createEdge({
           userId,
           spaceId: space.id,
-          sourceId: node.id,
+          sourceId: parentId,
           targetId: childNode.id,
         });
 
         const newNodes = [...state.rfNodes, rfChild];
         const newEdges = [
           ...state.rfEdges,
-          { id: savedEdge.id, source: node.id, target: childNode.id, type: "deletable" },
+          { id: savedEdge.id, source: parentId, target: childNode.id, type: "deletable" },
         ];
 
         dispatch({ type: "SET_EDGES", edges: newEdges });
-
-        // Auto-layout the entire tree
         await applyLayout(newNodes, newEdges);
       } catch {
         toast.error("Failed to create card");
       } finally {
         dispatch({ type: "SET_ADDING", adding: false });
       }
-    },
-    [broadcastSelection, userId, space.id, state.rfNodes, state.rfEdges, state.adding, applyLayout],
-  );
+    };
+    window.addEventListener("add-child-node", handler);
+    return () => window.removeEventListener("add-child-node", handler);
+  }, [userId, space.id, state.rfNodes, state.rfEdges, state.adding, applyLayout]);
 
   const onPaneClick = useCallback(() => {
     broadcastSelection(null);
