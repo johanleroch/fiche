@@ -42,12 +42,17 @@ interface BoardCanvasProps {
   userId: string;
 }
 
+const MAX_UNDO_HISTORY = 30;
+
+type Snapshot = { rfNodes: RFNode<CardNodeData>[]; rfEdges: RFEdge[] };
+
 type CanvasState = {
   rfNodes: RFNode<CardNodeData>[];
   rfEdges: RFEdge[];
   selectedNodeId: string | null;
   sheetOpen: boolean;
   adding: boolean;
+  history: Snapshot[];
 };
 
 type CanvasAction =
@@ -57,10 +62,27 @@ type CanvasAction =
   | { type: "CLOSE_SHEET" }
   | { type: "SET_ADDING"; adding: boolean }
   | { type: "ADD_NODE"; node: RFNode<CardNodeData> }
-  | { type: "UPDATE_NODE_DATA"; nodeId: string; title: string; content: CardNodeData["content"] };
+  | { type: "UPDATE_NODE_DATA"; nodeId: string; title: string; content: CardNodeData["content"] }
+  | { type: "SAVE_SNAPSHOT" }
+  | { type: "UNDO" };
+
+function pushSnapshot(state: CanvasState): Snapshot[] {
+  const snap: Snapshot = { rfNodes: state.rfNodes, rfEdges: state.rfEdges };
+  const history = [...state.history, snap];
+  if (history.length > MAX_UNDO_HISTORY) history.shift();
+  return history;
+}
 
 function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
   switch (action.type) {
+    case "SAVE_SNAPSHOT":
+      return { ...state, history: pushSnapshot(state) };
+    case "UNDO": {
+      if (state.history.length === 0) return state;
+      const history = [...state.history];
+      const prev = history.pop()!;
+      return { ...state, rfNodes: prev.rfNodes, rfEdges: prev.rfEdges, history };
+    }
     case "SET_NODES":
       return { ...state, rfNodes: action.nodes };
     case "SET_EDGES":
@@ -115,6 +137,7 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
     selectedNodeId: null,
     sheetOpen: false,
     adding: false,
+    history: [],
   });
 
   const positionDebounce = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -131,10 +154,42 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
     return () => { timers.forEach((t) => clearTimeout(t)); };
   }, []);
 
+  // Undo with Cmd+Z / Ctrl+Z — restore state and sync to DB
+  const undoCountRef = useRef(0);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        dispatch({ type: "UNDO" });
+        undoCountRef.current += 1;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // After undo, sync the restored node positions to DB
+  const prevUndoCount = useRef(0);
+  useEffect(() => {
+    if (undoCountRef.current > prevUndoCount.current) {
+      prevUndoCount.current = undoCountRef.current;
+      // Sync all node positions to DB after undo
+      for (const node of state.rfNodes) {
+        updateNodePosition({
+          userId,
+          nodeId: node.id,
+          positionX: node.position.x,
+          positionY: node.position.y,
+        }).catch(() => {});
+      }
+    }
+  }, [state.rfNodes, state.rfEdges, userId]);
+
   // Listen for delete-edge custom events from DeletableEdge component
   useEffect(() => {
     const handler = async (e: Event) => {
       const edgeId = (e as CustomEvent).detail.edgeId as string;
+      dispatch({ type: "SAVE_SNAPSHOT" });
       const snapshot = state.rfEdges;
       dispatch({ type: "SET_EDGES", edges: state.rfEdges.filter((edge) => edge.id !== edgeId) });
       try {
@@ -199,6 +254,8 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
       dispatch({ type: "SET_NODES", nodes: applyNodeChanges(others, state.rfNodes) });
     }
 
+    if (removes.length > 0) dispatch({ type: "SAVE_SNAPSHOT" });
+
     for (const change of removes) {
       if (change.type === "remove") {
         dispatch({ type: "SET_NODES", nodes: applyNodeChanges([change], state.rfNodes) });
@@ -220,6 +277,8 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
       dispatch({ type: "SET_EDGES", edges: applyEdgeChanges(others, state.rfEdges) });
     }
 
+    if (removes.length > 0) dispatch({ type: "SAVE_SNAPSHOT" });
+
     for (const change of removes) {
       if (change.type === "remove") {
         const snapshot = state.rfEdges;
@@ -235,6 +294,7 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
   }, [userId, state.rfEdges]);
 
   const onConnect = useCallback(async (connection: Connection) => {
+    dispatch({ type: "SAVE_SNAPSHOT" });
     try {
       const savedEdge = await createEdge({
         userId,
@@ -254,6 +314,7 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
   const onNodeDragStart: OnNodeDrag = useCallback((_event, node) => {
     isDraggingRef.current = true;
     didDragRef.current = true;
+    dispatch({ type: "SAVE_SNAPSHOT" });
     // Clear any lingering remote drag transition to avoid lag on local drag
     clearRemoteDrag(node.id);
     broadcastSelection(node.id);
@@ -342,6 +403,7 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
       broadcastSelection(node.id);
 
       if (state.adding) return;
+      dispatch({ type: "SAVE_SNAPSHOT" });
       dispatch({ type: "SET_ADDING", adding: true });
 
       try {
@@ -409,6 +471,7 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
   }, []);
 
   const handleAddCard = useCallback(async () => {
+    dispatch({ type: "SAVE_SNAPSHOT" });
     dispatch({ type: "SET_ADDING", adding: true });
     try {
       const node = await createNode({
@@ -445,6 +508,8 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
     // If dropped on an existing node, onConnect handles it — skip here
     const targetIsPane = (event.target as Element).classList.contains("react-flow__pane");
     if (!targetIsPane || !parentNodeId) return;
+
+    dispatch({ type: "SAVE_SNAPSHOT" });
 
     const position = screenToFlowPosition({
       x: (event as MouseEvent).clientX,
