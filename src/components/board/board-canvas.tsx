@@ -361,6 +361,10 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
       return {
         ...node,
         ...(dragPos ? { position: { x: dragPos.x, y: dragPos.y } } : {}),
+        // Smooth interpolation via CSS transition on the React Flow node wrapper
+        style: dragPos
+          ? { transition: "transform 80ms ease-out" }
+          : node.style,
         data: {
           ...node.data,
           ...(selection ? { remoteSelectionColor: selection.color } : {}),
