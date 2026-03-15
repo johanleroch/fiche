@@ -31,6 +31,7 @@ export type RemoteSelection = {
 };
 
 export type RemoteDragPosition = {
+  browserId: string;
   nodeId: string;
   x: number;
   y: number;
@@ -92,7 +93,11 @@ export function useRealtimeSync(
           }),
         );
       } else if (type === "cursor-leave") {
-        setCursors((prev) => prev.filter((c) => c.browserId !== (data.browserId as string)));
+        const bid = data.browserId as string;
+        setCursors((prev) => prev.filter((c) => c.browserId !== bid));
+        // Clean up all state from this user
+        setRemoteSelections((prev) => prev.filter((s) => s.browserId !== bid));
+        setRemoteDragPositions((prev) => prev.filter((d) => d.browserId !== bid));
       } else if (type === "node-select") {
         if ((data.browserId as string) === browserId) return;
         setRemoteSelections((prev) => {
@@ -106,7 +111,7 @@ export function useRealtimeSync(
         if ((data.browserId as string) === browserId) return;
         setRemoteDragPositions((prev) => {
           const filtered = prev.filter((d) => d.nodeId !== (data.nodeId as string));
-          return [...filtered, { nodeId: data.nodeId as string, x: data.x as number, y: data.y as number }];
+          return [...filtered, { browserId: data.browserId as string, nodeId: data.nodeId as string, x: data.x as number, y: data.y as number }];
         });
       }
     },

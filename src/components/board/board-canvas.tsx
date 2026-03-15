@@ -403,7 +403,7 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
         nodeTypes={nodeTypes}
         fitView
         deleteKeyCode="Delete"
-        className="bg-background"
+        className={`bg-background ${remoteDragPositions.length > 0 ? "remote-dragging" : ""}`}
       >
         <Background variant={BackgroundVariant.Lines} gap={32} color="#e5e7eb" lineWidth={1} />
         <Controls showInteractive={false} />
