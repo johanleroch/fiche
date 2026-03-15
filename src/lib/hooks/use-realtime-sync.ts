@@ -24,6 +24,18 @@ export type RemoteCursor = {
   color: string;
 };
 
+export type RemoteSelection = {
+  browserId: string;
+  nodeId: string;
+  color: string;
+};
+
+export type RemoteDragPosition = {
+  nodeId: string;
+  x: number;
+  y: number;
+};
+
 interface SyncCallbacks {
   onNodesUpdate: (nodes: Node[]) => void;
   onEdgesUpdate: (edges: Edge[]) => void;
@@ -39,8 +51,11 @@ export function useRealtimeSync(
   const [browserId] = useState(() => crypto.randomUUID());
   const [color] = useState(() => pickColor(browserId));
   const [cursors, setCursors] = useState<RemoteCursor[]>([]);
+  const [remoteSelections, setRemoteSelections] = useState<RemoteSelection[]>([]);
+  const [remoteDragPositions, setRemoteDragPositions] = useState<RemoteDragPosition[]>([]);
   const peerCountRef = useRef(1);
   const lastSentRef = useRef(0);
+  const lastDragSentRef = useRef(0);
   const callbacksRef = useRef(callbacks);
   const { screenToFlowPosition } = useReactFlow();
 
@@ -78,6 +93,21 @@ export function useRealtimeSync(
         );
       } else if (type === "cursor-leave") {
         setCursors((prev) => prev.filter((c) => c.browserId !== (data.browserId as string)));
+      } else if (type === "node-select") {
+        if ((data.browserId as string) === browserId) return;
+        setRemoteSelections((prev) => {
+          const filtered = prev.filter((s) => s.browserId !== (data.browserId as string));
+          return [...filtered, { browserId: data.browserId as string, nodeId: data.nodeId as string, color: data.color as string }];
+        });
+      } else if (type === "node-deselect") {
+        if ((data.browserId as string) === browserId) return;
+        setRemoteSelections((prev) => prev.filter((s) => s.browserId !== (data.browserId as string)));
+      } else if (type === "node-drag") {
+        if ((data.browserId as string) === browserId) return;
+        setRemoteDragPositions((prev) => {
+          const filtered = prev.filter((d) => d.nodeId !== (data.nodeId as string));
+          return [...filtered, { nodeId: data.nodeId as string, x: data.x as number, y: data.y as number }];
+        });
       }
     },
     [browserId, isDraggingRef, pendingSavesRef, upsertCursor],
@@ -98,6 +128,18 @@ export function useRealtimeSync(
 
     es.addEventListener("cursor-leave", (e) => {
       handleMessage("cursor-leave", JSON.parse(e.data));
+    });
+
+    es.addEventListener("node-select", (e) => {
+      handleMessage("node-select", JSON.parse(e.data));
+    });
+
+    es.addEventListener("node-deselect", (e) => {
+      handleMessage("node-deselect", JSON.parse(e.data));
+    });
+
+    es.addEventListener("node-drag", (e) => {
+      handleMessage("node-drag", JSON.parse(e.data));
     });
 
     es.addEventListener("peer-count", (e) => {
@@ -203,6 +245,54 @@ export function useRealtimeSync(
     [browserId, color, spaceId, screenToFlowPosition],
   );
 
+  // Broadcast node selection
+  const broadcastSelection = useCallback(
+    (nodeId: string | null) => {
+      if (peerCountRef.current <= 1) return;
+
+      if (nodeId) {
+        bcRef.current?.post({ type: "node-select", browserId, nodeId, color });
+        fetch("/api/events/cursor", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ spaceId, browserId, nodeId, color, type: "node-select" }),
+        }).catch(() => {});
+      } else {
+        bcRef.current?.post({ type: "node-deselect", browserId });
+        fetch("/api/events/cursor", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ spaceId, browserId, type: "node-deselect" }),
+        }).catch(() => {});
+      }
+    },
+    [browserId, color, spaceId],
+  );
+
+  // Broadcast node drag position (throttled ~60ms for smooth movement)
+  const broadcastNodeDrag = useCallback(
+    (nodeId: string, x: number, y: number) => {
+      if (peerCountRef.current <= 1) return;
+
+      const now = Date.now();
+      if (now - lastDragSentRef.current < 60) return;
+      lastDragSentRef.current = now;
+
+      bcRef.current?.post({ type: "node-drag", browserId, nodeId, x, y });
+      fetch("/api/events/cursor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spaceId, browserId, nodeId, x, y, type: "node-drag" }),
+      }).catch(() => {});
+    },
+    [browserId, spaceId],
+  );
+
+  // Clear remote drag position when drag ends (board-update will have final position)
+  const clearRemoteDrag = useCallback((nodeId: string) => {
+    setRemoteDragPositions((prev) => prev.filter((d) => d.nodeId !== nodeId));
+  }, []);
+
   // Notify cursor leave on unmount
   useEffect(() => {
     const bid = browserId;
@@ -230,5 +320,14 @@ export function useRealtimeSync(
     };
   }, [browserId, spaceId]);
 
-  return { cursors, onMouseMove, browserId };
+  return {
+    cursors,
+    onMouseMove,
+    browserId,
+    remoteSelections,
+    remoteDragPositions,
+    broadcastSelection,
+    broadcastNodeDrag,
+    clearRemoteDrag,
+  };
 }

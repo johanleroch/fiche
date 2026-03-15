@@ -8,10 +8,21 @@ export async function POST(request: Request) {
     return new Response(null, { status: 400 });
   }
 
-  if (body.type === "leave") {
-    publish(spaceId, "cursor-leave", { browserId });
-  } else {
-    publish(spaceId, "cursor-move", { browserId, cursorX, cursorY, color });
+  switch (body.type) {
+    case "leave":
+      publish(spaceId, "cursor-leave", { browserId });
+      break;
+    case "node-select":
+      publish(spaceId, "node-select", { browserId, nodeId: body.nodeId, color: body.color });
+      break;
+    case "node-deselect":
+      publish(spaceId, "node-deselect", { browserId });
+      break;
+    case "node-drag":
+      publish(spaceId, "node-drag", { browserId, nodeId: body.nodeId, x: body.x, y: body.y });
+      break;
+    default:
+      publish(spaceId, "cursor-move", { browserId, cursorX, cursorY, color });
   }
 
   return new Response(null, { status: 204 });

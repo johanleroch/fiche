@@ -6,6 +6,7 @@ import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 export type CardNodeData = {
   title: string;
   content: Array<{ type: string; children: Array<{ text: string }> }>;
+  remoteSelectionColor?: string;
 };
 
 export type CardNode = Node<CardNodeData, "card">;
@@ -21,8 +22,13 @@ const CardNodeComponent = ({ data, selected }: NodeProps<CardNode>) => {
       className={`
         bg-white border rounded-xl shadow-sm px-4 py-3 min-w-[200px] max-w-[260px] cursor-pointer
         transition-all duration-150
-        ${selected ? "border-primary shadow-md ring-2 ring-primary/20" : "border-border hover:shadow-md hover:border-muted-foreground/30"}
+        ${selected ? "border-primary shadow-md ring-2 ring-primary/20" : data.remoteSelectionColor ? "shadow-md ring-2" : "border-border hover:shadow-md hover:border-muted-foreground/30"}
       `}
+      style={data.remoteSelectionColor && !selected ? {
+        borderColor: data.remoteSelectionColor,
+        // ring color with opacity
+        boxShadow: `0 0 0 3px ${data.remoteSelectionColor}33`,
+      } : undefined}
     >
       <Handle type="target" position={Position.Top} className="!bg-muted-foreground/40 !border-none !w-2 !h-2" />
       <div className="font-medium text-sm text-foreground truncate mb-1">

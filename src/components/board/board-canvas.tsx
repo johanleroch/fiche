@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -132,7 +132,15 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
   }, [space.id]);
 
   // Real-time sync via SSE + BroadcastChannel (replaces polling)
-  const { cursors, onMouseMove } = useRealtimeSync(space.id, userId, {
+  const {
+    cursors,
+    onMouseMove,
+    remoteSelections,
+    remoteDragPositions,
+    broadcastSelection,
+    broadcastNodeDrag,
+    clearRemoteDrag,
+  } = useRealtimeSync(space.id, userId, {
     onNodesUpdate: (dbNodes) => {
       dispatch({
         type: "SET_NODES",
@@ -219,12 +227,19 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
     }
   }, [userId, space.id, state.rfEdges]);
 
-  const onNodeDragStart: OnNodeDrag = useCallback(() => {
+  const onNodeDragStart: OnNodeDrag = useCallback((_event, node) => {
     isDraggingRef.current = true;
-  }, []);
+    broadcastSelection(node.id);
+  }, [broadcastSelection]);
+
+  // Stream drag position to other users for smooth movement
+  const onNodeDrag: OnNodeDrag = useCallback((_event, node) => {
+    broadcastNodeDrag(node.id, node.position.x, node.position.y);
+  }, [broadcastNodeDrag]);
 
   const onNodeDragStop: OnNodeDrag = useCallback((_event, node) => {
     isDraggingRef.current = false;
+    clearRemoteDrag(node.id);
     const existing = positionDebounce.current.get(node.id);
     if (existing) clearTimeout(existing);
 
@@ -249,6 +264,14 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
   const onNodeDoubleClick = useCallback((_event: React.MouseEvent, node: RFNode) => {
     dispatch({ type: "OPEN_SHEET", nodeId: node.id });
   }, []);
+
+  const onNodeClick = useCallback((_event: React.MouseEvent, node: RFNode) => {
+    broadcastSelection(node.id);
+  }, [broadcastSelection]);
+
+  const onPaneClick = useCallback(() => {
+    broadcastSelection(null);
+  }, [broadcastSelection]);
 
   const handleAddCard = useCallback(async () => {
     dispatch({ type: "SET_ADDING", adding: true });
@@ -327,6 +350,25 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
     }
   }, [userId, space.id, state.rfEdges, screenToFlowPosition]);
 
+  // Merge remote selections and drag positions into display nodes
+  const displayNodes = useMemo(() => {
+    return state.rfNodes.map((node) => {
+      const selection = remoteSelections.find((s) => s.nodeId === node.id);
+      const dragPos = remoteDragPositions.find((d) => d.nodeId === node.id);
+
+      if (!selection && !dragPos) return node;
+
+      return {
+        ...node,
+        ...(dragPos ? { position: { x: dragPos.x, y: dragPos.y } } : {}),
+        data: {
+          ...node.data,
+          ...(selection ? { remoteSelectionColor: selection.color } : {}),
+        },
+      };
+    });
+  }, [state.rfNodes, remoteSelections, remoteDragPositions]);
+
   const handleCardUpdated = useCallback((nodeId: string, title: string, content: unknown[]) => {
     dispatch({
       type: "UPDATE_NODE_DATA",
@@ -341,7 +383,7 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
       <BoardToolbar boardName={space.name} onAddCard={handleAddCard} adding={state.adding} userId={userId} />
 
       <ReactFlow
-        nodes={state.rfNodes}
+        nodes={displayNodes}
         edges={state.rfEdges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
@@ -349,7 +391,10 @@ function BoardCanvasInner({ space, initialNodes, initialEdges, userId }: BoardCa
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
         onNodeDragStart={onNodeDragStart}
+        onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
+        onNodeClick={onNodeClick}
+        onPaneClick={onPaneClick}
         onNodeDoubleClick={onNodeDoubleClick}
         nodeTypes={nodeTypes}
         fitView
